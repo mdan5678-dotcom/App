@@ -1,0 +1,62 @@
+function startToolTimer(sec){clearInterval(toolTimer);toolRemaining=sec;updateToolTimer();toolTimer=setInterval(()=>{toolRemaining--;updateToolTimer();if(toolRemaining<=0){clearInterval(toolTimer);speak('Rest complete. Begin your next set.');toast('Rest complete')}} ,1000)}
+function updateToolTimer(){const e=$('#tool-timer');if(e)e.textContent=clock(toolRemaining)}
+function calc1rm(){const w=Number($('#erm-weight')?.value),r=Number($('#erm-reps')?.value),o=$('#erm-out');if(!o)return;o.textContent=w>0&&r>0?`${Math.round(w*(1+r/30))} lb estimated`:'—'}
+function calcPlates(){const total=Number($('#plate-total')?.value),bar=Number($('#bar-weight')?.value||45),o=$('#plate-out');if(!o||total<bar){if(o)o.textContent='—';return}let side=(total-bar)/2,remain=side,plates=[];[45,35,25,10,5,2.5].forEach(p=>{const n=Math.floor((remain+.001)/p);if(n){plates.push(`${n}×${p}`);remain-=n*p}});o.textContent=`Each side: ${plates.join(' + ')||'none'}${remain>.1?` (+${remain.toFixed(1)} lb unresolved)`:''}`}
+function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`hercules-530-backup-${dateKey()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function importData(e){const file=e.target.files?.[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{state=Object.assign(load(),JSON.parse(r.result));save();toast('Backup restored');render()}catch{alert('That file is not a valid Hercules backup.')}};r.readAsText(file)}
+function installApp(){if(deferredInstall){deferredInstall.prompt();deferredInstall.userChoice.finally(()=>deferredInstall=null)}else alert('On iPhone: open this page in Safari, tap the Share button, choose Add to Home Screen, then tap Add. On Android: open the browser menu and choose Install app or Add to Home screen.')}
+function buildTasks(key){
+ const w=D.workouts[key],wNum=Number(state.week)||1,reduce=wNum<=2||wNum===7,t=[];
+ w.blocks.forEach((b,bi)=>{
+  if(b.type==='warmup')t.push({kind:'warmup',name:b.name,duration:b.seconds,cue:b.cue,next:blockNext(w.blocks,bi)});
+  else if(b.type==='exercise'){
+   const sets=reduce?Math.min(2,b.sets):b.sets;
+   for(let s=1;s<=sets;s++){
+    t.push({kind:'work',name:b.name,duration:45,cue:b.cue,reps:b.reps,set:s,sets,exercise:b.name});
+    if(s<sets)t.push({kind:'rest',name:`Rest after ${b.name}`,duration:b.rest,cue:`Breathe, record the set, and prepare for set ${s+1}.`,next:`${b.name} set ${s+1}`});
+   }
+   if(bi<w.blocks.length-1)t.push({kind:'transition',name:'Change station',duration:20,cue:`Move efficiently to ${blockName(w.blocks[bi+1])}.`,next:blockName(w.blocks[bi+1])});
+  }else{
+   const rounds=reduce?Math.min(2,b.rounds):b.rounds;
+   for(let r=1;r<=rounds;r++){
+    b.items.forEach((it,ii)=>{
+     t.push({kind:'work',name:it.name,duration:35,cue:it.cue,reps:it.reps,set:r,sets:rounds,exercise:it.name,circuit:b.name});
+     if(ii<b.items.length-1)t.push({kind:'transition',name:'Circuit transition',duration:10,cue:`Move directly to ${b.items[ii+1].name}.`,next:b.items[ii+1].name});
+    });
+    if(r<rounds)t.push({kind:'rest',name:`Rest after circuit round ${r}`,duration:b.rest,cue:`Recover, then repeat ${b.name}.`,next:`${b.name} round ${r+1}`});
+   }
+  }
+ });
+ return t;
+}
+function blockName(b){return b?.name||'the next block'}
+function blockNext(arr,i){return blockName(arr[i+1])}
+async function startCoach(key){
+ if(!D.workouts[key])return;
+ const tasks=buildTasks(key),now=new Date(),realStop=new Date(now);realStop.setHours(5,18,0,0);const morning=now.getHours()>=3&&now<realStop;
+ coach={key,tasks,index:0,remaining:tasks[0].duration,elapsed:0,paused:false,voice:state.settings.voice!==false,lastTick:Date.now(),deadline:morning?realStop.getTime():Date.now()+48*60*1000,announced:new Set(),logged:false};
+ $('#coach').classList.remove('hidden');document.body.style.overflow='hidden';
+ $('#coach-day').textContent=D.workouts[key].title;$('#voice-toggle').textContent=coach.voice?'Voice On':'Voice Off';
+ try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch{}
+ showCoachTask(true);coach.timer=setInterval(coachTick,250);speak(`Hercules 5 30. ${D.workouts[key].title}. You have a hard stop at 5 18. Begin ${tasks[0].name}. ${tasks[0].cue}`);
+}
+function coachTick(){if(!coach||coach.paused)return;const now=Date.now(),delta=(now-coach.lastTick)/1000;coach.lastTick=now;coach.remaining-=delta;coach.elapsed+=delta;if(now>=coach.deadline){finishCoach(true);return}announceThresholds();if(coach.remaining<=0)advanceCoach(1);updateCoachUI()}
+function announceThresholds(){const t=coach.tasks[coach.index],r=Math.ceil(coach.remaining);if(t.kind==='rest'){[30,10,3].forEach(n=>{const k=`${coach.index}-${n}`;if(r<=n&&!coach.announced.has(k)){coach.announced.add(k);speak(n===3?'Three, two, one. Prepare.':`${n} seconds remaining.`)}})}else if(t.kind==='work'){[20,5].forEach(n=>{const k=`${coach.index}-${n}`;if(r<=n&&!coach.announced.has(k)){coach.announced.add(k);speak(n===5?'Five seconds. Finish with clean form.':t.cue)}})}}
+function advanceCoach(dir){if(!coach)return;coach.index=Math.max(0,Math.min(coach.tasks.length,coach.index+dir));if(coach.index>=coach.tasks.length){finishCoach(false);return}coach.remaining=coach.tasks[coach.index].duration;coach.lastTick=Date.now();coach.logged=false;showCoachTask(true)}
+function showCoachTask(announce=false){const t=coach.tasks[coach.index];if(!t)return;$('#coach-phase').textContent=t.kind==='work'?`SET ${t.set} OF ${t.sets} · ${t.reps} REPS`:t.kind.toUpperCase();$('#coach-task').textContent=t.name;$('#coach-cue').textContent=t.cue;$('#coach-next').textContent=`Next: ${coach.tasks[coach.index+1]?.name||'Workout complete'}`;$('#set-log').classList.toggle('hidden',t.kind!=='work');if(t.kind==='work'){const last=[...state.sets].reverse().find(x=>x.exercise===t.exercise);$('#log-weight').value=last?.weight||'';$('#log-reps').value='';$('#log-rir').value=Number(state.week)<=2||Number(state.week)===7?'3':'2'}if(announce)speak(taskSpeech(t));updateCoachUI()}
+function taskSpeech(t){if(t.kind==='work')return `${t.name}. Set ${t.set} of ${t.sets}. Target ${t.reps} reps. ${t.cue}`;if(t.kind==='rest')return `Rest ${t.duration} seconds. ${t.cue}`;return `${t.name}. ${t.cue}`}
+function updateCoachUI(){if(!coach)return;const t=coach.tasks[coach.index];$('#coach-clock').textContent=clock(Math.ceil(coach.remaining));$('#coach-elapsed').textContent=`${clock(coach.elapsed)} / 48:00`;$('#coach-bar').style.width=`${Math.min(100,coach.elapsed/(48*60)*100)}%`;$('#coach-pause').textContent=coach.paused?'Resume':'Pause';$('#voice-toggle').textContent=coach.voice?'Voice On':'Voice Off'}
+function logCurrentSet(){const t=coach?.tasks[coach.index];if(!t||t.kind!=='work')return;state.sets.push({date:dateKey(),day:coach.key,exercise:t.exercise,set:t.set,weight:$('#log-weight').value,reps:$('#log-reps').value,rir:$('#log-rir').value,time:new Date().toISOString()});state.sets=state.sets.slice(-1000);save();coach.logged=true;toast('Set logged')}
+function finishCoach(hardStop){if(!coach)return;clearInterval(coach.timer);const elapsed=Math.round(coach.elapsed),key=coach.key;state.sessions.push({date:dateKey(),day:key,elapsed,hardStop,completed:!hardStop&&coach.index>=coach.tasks.length-1});state.sessions=state.sessions.slice(-200);save();speak(hardStop?'Hard stop. Leave the gym floor now and begin your shower.':`Workout complete. Record your final notes, then begin your shower.`);releaseCoach();toast(hardStop?'5:18 hard stop reached':'Workout complete')}
+function releaseCoach(){clearInterval(coach?.timer);coach=null;$('#coach').classList.add('hidden');document.body.style.overflow='';if(wakeLock){wakeLock.release().catch(()=>{});wakeLock=null}render()}
+function speak(text){if(!coach?.voice&&coach!==null)return;if(!('speechSynthesis'in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=Number(state.settings.rate)||1;u.pitch=1;u.volume=1;speechSynthesis.speak(u)}catch{}}
+function bindCoach(){
+ $('#coach-close').onclick=()=>{if(confirm('End this workout session?'))releaseCoach()};
+ $('#coach-pause').onclick=()=>{if(!coach)return;coach.paused=!coach.paused;coach.lastTick=Date.now();if(coach.paused){speechSynthesis?.cancel();speak('Workout paused.')}else speak('Workout resumed.');updateCoachUI()};
+ $('#coach-skip').onclick=()=>advanceCoach(1);$('#coach-back').onclick=()=>advanceCoach(-1);$('#log-set').onclick=logCurrentSet;
+ $('#voice-toggle').onclick=()=>{if(!coach)return;coach.voice=!coach.voice;state.settings.voice=coach.voice;save();if(!coach.voice)speechSynthesis?.cancel();else speak('Voice coach on.');updateCoachUI()};
+}
+function registerPWA(){if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js').catch(()=>{});window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;$('#install-btn').classList.remove('hidden')});$('#install-btn').onclick=installApp}
+function nav(){ $$('.bottom-nav button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render();window.scrollTo({top:0,behavior:'smooth'})}) }
+registerPWA();nav();bindCoach();render();setInterval(()=>{if(view==='today')$('#today-label').textContent=new Intl.DateTimeFormat(undefined,{weekday:'long',month:'short',day:'numeric'}).format(new Date())+` · Week ${state.week}`},60000);
+})();
