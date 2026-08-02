@@ -1,0 +1,60 @@
+(()=>{
+'use strict';
+const D=window.H530_DATA, APP=document.getElementById('app');
+const KEY='hercules530_state_v2';
+const dayKeys=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const fmt=n=>String(Math.max(0,Math.floor(n))).padStart(2,'0');
+const clock=s=>`${fmt(s/60)}:${fmt(s%60)}`;
+const dateKey=(d=new Date())=>d.toISOString().slice(0,10);
+const todayKey=()=>dayKeys[new Date().getDay()];
+let state=load(), view='today', fuelMode='training', deferredInstall=null, toolTimer=null, toolRemaining=0;
+let coach=null, wakeLock=null;
+function load(){try{return Object.assign({week:1,checks:{},body:[],sets:[],sessions:[],settings:{voice:true,rate:1}},JSON.parse(localStorage.getItem(KEY)||'{}'));}catch{return {week:1,checks:{},body:[],sets:[],sessions:[],settings:{voice:true,rate:1}}}}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.add('hidden'),2300)}
+function phase(){const w=Number(state.week)||1;if(w<=2)return D.phases[0];if(w<=6)return D.phases[1];if(w===7)return D.phases[2];return D.phases[3]}
+function dayInfo(key=todayKey()){return D.week.find(x=>x.key===key)}
+function isTraining(key=todayKey()){return !!dayInfo(key)?.training}
+function supplementList(mode){
+ if(mode==='training')return D.supplements.training;
+ return D.supplements.training.filter(x=>!['Bulk Black pre-workout','Transparent Labs Nitric Oxide','Hydration'].includes(x.name)).map(x=>{
+  if(x.name==='Thorne creatine')return {...x,time:'First shake',note:'Mix 5 g into the Momentous whey shake. Take it every day.'};
+  return x;
+ });
+}
+function checkId(scope,i){return `${dateKey()}:${scope}:${i}`}
+function render(){
+ $$('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+ $('#today-label').textContent=new Intl.DateTimeFormat(undefined,{weekday:'long',month:'short',day:'numeric'}).format(new Date())+` · Week ${state.week}`;
+ if(view==='today')renderToday(); else if(view==='plan')renderPlan(); else if(view==='fuel')renderFuel(); else if(view==='progress')renderProgress(); else renderTools();
+ bindCommon();
+}
+function heroCountdown(){
+ const now=new Date(), stop=new Date(now);stop.setHours(5,18,0,0);
+ const gym=new Date(now);gym.setHours(4,30,0,0);
+ const target=now<gym?gym:(now<stop?stop:null);
+ if(!target)return `<div class="countdown"><div><strong>4:30</strong><small>start</small></div><div><strong>5:18</strong><small>floor stop</small></div><div><strong>5:30</strong><small>shower</small></div></div>`;
+ const sec=Math.max(0,Math.floor((target-now)/1000));
+ return `<div class="countdown"><div><strong>${fmt(sec/3600)}:${fmt((sec%3600)/60)}</strong><small>${now<gym?'until gym':'left on floor'}</small></div><div><strong>5:18</strong><small>hard stop</small></div><div><strong>5:30</strong><small>shower</small></div></div>`;
+}
+function renderToday(){
+ const key=todayKey(), info=dayInfo(key), train=info.training, w=D.workouts[key];
+ APP.innerHTML=`<section class="hero"><p class="eyebrow">${train?'TODAY\'S MISSION':'RECOVERY BUILDS MUSCLE'}</p><h1>${esc(info.title)}</h1><p>${train?esc(w.focus)+'. Your voice coach protects the 5:18 AM hard stop.':'No lifting today. Walk easily, prepare food, and recover for the next session.'}</p>${heroCountdown()}<div class="hero-actions">${train?`<button class="primary" data-start="${key}">Start voice workout</button><button class="ghost" data-jump="plan">Review exercises</button>`:`<button class="primary" data-jump="fuel">Open rest-day fuel</button><button class="ghost" data-jump="progress">Log recovery</button>`}</div></section>
+ <section class="section"><div class="section-head"><h2>Current phase</h2><small>Week ${state.week} of 12</small></div><div class="card phase"><div class="phase-badge">${state.week}</div><div><strong>${esc(phase().name)}</strong><p>${esc(phase().rule)}</p></div></div></section>
+ ${train?exerciseCards(w):recoveryCard()}
+ <section class="section"><div class="section-head"><h2>Today's essentials</h2><small>Tap each when done</small></div>${supplementList(train?'training':'rest').map((x,i)=>checkCard(x,i,'today-supp')).join('')}</section>
+ <section class="section"><div class="section-head"><h2>${train?'Training':'Rest'}-day meals</h2><button class="chip-btn" data-jump="fuel">Full plan</button></div>${D.meals[train?'training':'rest'].items.slice(0,3).map(mealCard).join('')}</section>`;
+}
+function recoveryCard(){return `<section class="section"><div class="section-head"><h2>Recovery prescription</h2></div><div class="card"><ul class="mini-list"><li>Optional relaxed 20-30 minute walk.</li><li>Five minutes of easy hip, shoulder and upper-back mobility.</li><li>No hard intervals or replacement lifting session.</li><li>Start bedtime routine around 8:30 PM for the 4:00 AM wake-up.</li></ul></div></section>`}
+function exerciseCards(w){
+ let n=0;const cards=[];
+ w.blocks.forEach(b=>{if(b.type==='warmup'){cards.push(`<div class="card exercise"><div class="exercise-num">W</div><div><h3>${esc(b.name)}</h3><p class="prescription">5 minutes</p><p>${esc(b.cue)}</p></div></div>`)}else if(b.type==='exercise'){n++;cards.push(exerciseCard(b,n))}else{cards.push(`<div class="card"><span class="time-pill">${b.rounds} ROUNDS</span><h3>${esc(b.name)}</h3>${b.items.map((x,i)=>exerciseCard({...x,sets:b.rounds,rest:b.rest},`${n+1}.${i+1}`,true)).join('')}</div>`);n+=b.items.length}});
+ return `<section class="section"><div class="section-head"><h2>Workout sequence</h2><small>${esc(w.focus)}</small></div>${cards.join('')}</section>`;
+}
+function exerciseCard(x,n,compact=false){const q=encodeURIComponent(`${x.name} exercise proper form`);return `<div class="${compact?'exercise':'card exercise'}"><div class="exercise-num">${esc(n)}</div><div><h3>${esc(x.name)}</h3><p class="prescription">${x.sets} × ${esc(x.reps)} · ${x.rest||60}s rest</p><p>${esc(x.cue)}</p>${x.sub?`<p>Substitute: ${esc(x.sub)}</p>`:''}</div><a class="video-btn" href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">Video</a></div>`}
+function checkCard(x,i,scope){const id=checkId(scope,i),done=!!state.checks[id];return `<div class="card check-row ${done?'done':''}"><input type="checkbox" data-check="${esc(id)}" ${done?'checked':''}><div class="supp"><span class="time-pill">${esc(x.time)}</span><h3>${esc(x.name)}</h3><p class="prescription">${esc(x.dose)}</p><p>${esc(x.note)}</p>${x.risk?'<p class="alert">Higher-caution item: do not increase the planned amount.</p>':''}</div></div>`}
+function mealCard(x){return `<div class="card meal"><span class="time-pill">${esc(x.time)}</span><h3>${esc(x.name)}</h3><p>${esc(x.food)}</p></div>`}
+function renderPlan(){
+ const key=todayKey();
