@@ -1,0 +1,31 @@
+function isNightRecoveryItem(x){
+ const name=String(x?.name||'').toLowerCase();
+ return name.includes('magnesium bisglycinate')||name.includes('collagen peptides');
+}
+function nightRecoveryItems(){
+ const list=(D.supplements?.training||[]).filter(isNightRecoveryItem);
+ const magnesium=list.find(x=>String(x.name).toLowerCase().includes('magnesium'));
+ const collagen=list.find(x=>String(x.name).toLowerCase().includes('collagen'));
+ return [
+  magnesium||{time:'30-60 min before bed',name:'Magnesium bisglycinate',dose:'1 scoop / about 200 mg elemental',note:'Take nightly with water. Verify the elemental-magnesium amount on the bottle label and reduce or stop for diarrhea.'},
+  collagen||{time:'30-60 min before bed',name:'Collagen peptides',dose:'1 scoop',note:'Take nightly with water for connective-tissue support. Do not count collagen as complete muscle-building protein.'}
+ ];
+}
+['training','rest'].forEach(mode=>{
+ const items=D.meals?.[mode]?.items;
+ if(Array.isArray(items)&&!items.some(x=>String(x.name||'').toLowerCase().includes('night recovery'))){
+  items.push({time:'30-60 min before bed',name:'Night recovery',food:'Thorne Magnesium Bisglycinate: 1 scoop (about 200 mg elemental; verify the bottle label). Momentous Collagen Peptides: 1 scoop. Take both every night with water.'});
+ }
+});
+renderToday=function(){
+ const key=todayKey(),info=dayInfo(key),train=info.training,w=D.workouts[key];
+ const allSupplements=supplementList(train?'training':'rest');
+ const otherSupplements=allSupplements.filter(x=>!isNightRecoveryItem(x));
+ const nightItems=nightRecoveryItems();
+ APP.innerHTML=`<section class="hero"><p class="eyebrow">${train?'TODAY\'S MISSION':'RECOVERY BUILDS MUSCLE'}</p><h1>${esc(info.title)}</h1><p>${train?esc(w.focus)+'. Your voice coach protects the 5:18 AM hard stop.':'No lifting today. Walk easily, prepare food, and recover for the next session.'}</p>${heroCountdown()}<div class="hero-actions">${train?`<button class="primary" data-start="${key}">Start voice workout</button><button class="ghost" data-jump="plan">Review exercises</button>`:`<button class="primary" data-jump="fuel">Open rest-day fuel</button><button class="ghost" data-jump="progress">Log recovery</button>`}</div></section>
+ <section class="section"><div class="section-head"><h2>Current phase</h2><small>Week ${state.week} of 12</small></div><div class="card phase"><div class="phase-badge">${state.week}</div><div><strong>${esc(phase().name)}</strong><p>${esc(phase().rule)}</p></div></div></section>
+ ${train?exerciseCards(w):recoveryCard()}
+ <section class="section"><div class="section-head"><h2>Night recovery — every day</h2><small>30–60 min before bed</small></div><div class="warning"><strong>Do not forget:</strong> magnesium and collagen are both scheduled every night.</div>${nightItems.map((x,i)=>checkCard(x,i,'today-night')).join('')}</section>
+ <section class="section"><div class="section-head"><h2>Today's other supplements</h2><small>Tap each when done</small></div>${otherSupplements.map((x,i)=>checkCard(x,i,'today-supp')).join('')}</section>
+ <section class="section"><div class="section-head"><h2>${train?'Training':'Rest'}-day meals</h2><button class="chip-btn" data-jump="fuel">Full plan</button></div>${D.meals[train?'training':'rest'].items.slice(0,3).map(mealCard).join('')}</section>`;
+};
