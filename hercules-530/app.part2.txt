@@ -1,0 +1,60 @@
+ APP.innerHTML=`<div class="section-head"><div><p class="eyebrow">12-WEEK COMEBACK</p><h1 class="page-title">Training plan</h1></div><label class="time-pill">Week <select id="week-select">${Array.from({length:12},(_,i)=>`<option ${state.week===i+1?'selected':''}>${i+1}</option>`).join('')}</select></label></div>
+ <section class="section"><div class="card phase"><div class="phase-badge">${state.week}</div><div><strong>${esc(phase().name)}</strong><p>${esc(phase().rule)}</p></div></div></section>
+ <section class="section"><div class="section-head"><h2>Weekly split</h2><small>Rest Wed + Sun</small></div>${D.week.map(d=>`<div class="card weekly-day ${d.key===key?'today':''}"><div><strong>${d.short} · ${esc(d.title)}</strong><small>${d.training?esc(D.workouts[d.key].focus):'Recovery and preparation'}</small></div>${d.training?`<button class="chip-btn" data-show-day="${d.key}">Open</button>`:'<span class="pill">REST</span>'}</div>`).join('')}</section>
+ <section class="section"><div class="section-head"><h2>Progression rules</h2></div><div class="card"><ol class="mini-list">${D.progression.rules.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></div></section>
+ <section id="day-detail" class="section"></section>`;
+}
+function showDay(key){const w=D.workouts[key];const el=$('#day-detail');el.innerHTML=`<div class="section-head"><h2>${esc(w.title)}</h2><button class="primary" data-start="${key}">Start coach</button></div>${exerciseCards(w).replace('<section class="section">','<div>').replace('</section>','</div>')}`;el.scrollIntoView({behavior:'smooth'});bindCommon()}
+function renderFuel(){
+ const mode=fuelMode, meal=D.meals[mode];
+ APP.innerHTML=`<div class="section-head"><div><p class="eyebrow">FOOD + SUPPLEMENTS</p><h1 class="page-title">Fuel plan</h1></div></div>
+ <div class="tabs"><button class="chip-btn ${mode==='training'?'active':''}" data-fuel="training">Training day</button><button class="chip-btn ${mode==='rest'?'active':''}" data-fuel="rest">Rest day</button><button class="chip-btn" data-fuel="grocery">Grocery list</button><button class="chip-btn" data-fuel="safety">Safety</button></div>
+ <div id="fuel-content">${fuelContent(mode)}</div>`;
+}
+function fuelContent(mode){
+ if(mode==='grocery')return `<section class="section"><div class="card"><h2>Seven-day grocery list</h2>${D.grocery.map((x,i)=>`<label class="check-row"><input type="checkbox" data-check="${checkId('grocery',i)}" ${state.checks[checkId('grocery',i)]?'checked':''}><span>${esc(x)}</span></label>`).join('<div class="divider"></div>')}</div></section>`;
+ if(mode==='safety')return `<section class="section"><div class="alert"><strong>Stop and seek urgent evaluation</strong><p>${esc(D.safety[0])}</p></div>${D.safety.slice(1).map(x=>`<div class="card"><p>${esc(x)}</p></div>`).join('')}</section>`;
+ const meal=D.meals[mode];return `<section class="section"><div class="warning">${esc(meal.summary)} Begin unchanged for about two weeks, then adjust calories by trend rather than appetite alone.</div><div class="section-head"><h2>Meals</h2><small>${esc(meal.label)}</small></div>${meal.items.map(mealCard).join('')}</section><section class="section"><div class="section-head"><h2>Supplement timing</h2><small>Organizer, not medical clearance</small></div>${supplementList(mode).map((x,i)=>checkCard(x,i,`${mode}-supp`)).join('')}</section>`}
+function renderProgress(){
+ const last=state.body.slice(-12), recentSets=state.sets.slice(-10).reverse();
+ APP.innerHTML=`<div class="section-head"><div><p class="eyebrow">MEASURE THE TREND</p><h1 class="page-title">Progress</h1></div></div>
+ <section class="section"><div class="card"><form id="body-form" class="progress-form"><label>Date<input name="date" type="date" value="${dateKey()}" required></label><label>Weight (lb)<input name="weight" inputmode="decimal" placeholder="200"></label><label>Waist (in)<input name="waist" inputmode="decimal" placeholder="optional"></label><label>Sleep (hours)<input name="sleep" inputmode="decimal" placeholder="7.5"></label><label class="full">Notes<textarea name="notes" placeholder="Energy, soreness, appetite, wins..."></textarea></label><button class="primary full" type="submit">Save check-in</button></form></div></section>
+ <section class="section"><div class="section-head"><h2>Weight trend</h2><small>${last.length} entries</small></div><div class="card">${weightChart(last)}${last.length?last.slice().reverse().map(x=>`<div class="history-row"><div><strong>${esc(x.weight||'—')} lb</strong><small>${esc(x.date)} · waist ${esc(x.waist||'—')} · sleep ${esc(x.sleep||'—')}h</small></div><small>${esc(x.notes||'')}</small></div>`).join(''):'<div class="empty">No check-ins yet.</div>'}</div></section>
+ <section class="section"><div class="section-head"><h2>Recent working sets</h2><small>Double progression</small></div><div class="card">${recentSets.length?recentSets.map(x=>`<div class="history-row"><div><strong>${esc(x.exercise)}</strong><small>${esc(x.date)} · set ${x.set}</small></div><span>${esc(x.weight||'—')} lb × ${esc(x.reps||'—')} · ${esc(x.rir)} RIR</span></div>`).join(''):'<div class="empty">Sets logged by the voice coach appear here.</div>'}</div></section>`;
+}
+function weightChart(rows){
+ const vals=rows.map(x=>Number(x.weight)).filter(Number.isFinite);if(vals.length<2)return '<div class="empty">Log at least two body weights to draw the trend.</div>';
+ const min=Math.min(...vals)-1,max=Math.max(...vals)+1,w=680,h=140,p=14;const pts=vals.map((v,i)=>`${p+i*(w-2*p)/(vals.length-1)},${h-p-(v-min)*(h-2*p)/(max-min||1)}`).join(' ');
+ return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Body-weight trend"><polyline points="${pts}" fill="none" stroke="#2bdcff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>${pts.split(' ').map(pt=>{const [x,y]=pt.split(',');return `<circle cx="${x}" cy="${y}" r="5" fill="#8dff7a"/>`}).join('')}</svg>`;
+}
+function renderTools(){
+ APP.innerHTML=`<div class="section-head"><div><p class="eyebrow">PRACTICAL TOOLS</p><h1 class="page-title">Tools</h1></div></div>
+ <section class="section tool-grid">
+  <div class="card tool-card"><h3>Rest timer</h3><div id="tool-timer" class="tool-output">${clock(toolRemaining)}</div><div class="pill-row">${[60,75,90,120].map(n=>`<button class="chip-btn" data-rest="${n}">${n}s</button>`).join('')}</div><button id="rest-stop" class="ghost" style="margin-top:8px">Stop</button></div>
+  <div class="card tool-card"><h3>Estimated 1RM</h3><div class="tool-form"><label>Weight<input id="erm-weight" inputmode="decimal"></label><label>Reps<input id="erm-reps" inputmode="numeric"></label></div><div id="erm-out" class="tool-output">—</div><small>For planning only; do not max out during this 12-week return.</small></div>
+  <div class="card tool-card"><h3>Plate calculator</h3><div class="tool-form"><label>Total bar weight<input id="plate-total" value="135" inputmode="decimal"></label><label>Bar weight<input id="bar-weight" value="45" inputmode="decimal"></label></div><div id="plate-out" class="tool-output">45 + 45 per side</div></div>
+  <div class="card tool-card"><h3>Sleep target</h3><p>For a 4:00 AM wake-up:</p><div class="tool-output">8:00-8:30 PM</div><small>That allows roughly 7.5-8 hours in bed.</small></div>
+ </section>
+ <section class="section"><div class="card"><h2>Phone setup</h2><p>iPhone: open this page in Safari, tap Share, then <strong>Add to Home Screen</strong>. Keep the screen on and use headphones for the voice coach.</p><button id="install-now" class="primary">Install / show directions</button><a class="ghost" style="display:inline-flex;text-decoration:none;margin-left:6px" href="hercules-530-reminders.ics">Add calendar reminders</a></div></section>
+ <section class="section"><div class="card"><h2>Data backup</h2><p>Your logs stay in this browser on this phone. Export a backup before clearing browser data or changing phones.</p><div class="hero-actions"><button id="export-data" class="primary">Export backup</button><label class="ghost" style="display:grid;place-items:center">Import backup<input id="import-data" type="file" accept="application/json" hidden></label></div><button id="reset-data" class="danger" style="margin-top:10px">Erase local app data</button></div></section>`;
+}
+function bindCommon(){
+ $$('[data-jump]').forEach(b=>b.onclick=()=>{view=b.dataset.jump;render()});
+ $$('[data-start]').forEach(b=>b.onclick=()=>startCoach(b.dataset.start));
+ $$('[data-show-day]').forEach(b=>b.onclick=()=>showDay(b.dataset.showDay));
+ $$('[data-check]').forEach(i=>i.onchange=()=>{state.checks[i.dataset.check]=i.checked;save();const row=i.closest('.check-row');if(row)row.classList.toggle('done',i.checked)});
+ const ws=$('#week-select');if(ws)ws.onchange=()=>{state.week=Number(ws.value);save();renderPlan();bindCommon()};
+ $$('[data-fuel]').forEach(b=>b.onclick=()=>{fuelMode=b.dataset.fuel;renderFuel();bindCommon()});
+ const bf=$('#body-form');if(bf)bf.onsubmit=e=>{e.preventDefault();const f=new FormData(bf),row=Object.fromEntries(f.entries());state.body.push(row);state.body=state.body.slice(-100);save();toast('Check-in saved');renderProgress();bindCommon()};
+ bindTools();
+}
+function bindTools(){
+ $$('[data-rest]').forEach(b=>b.onclick=()=>startToolTimer(Number(b.dataset.rest)));
+ const stop=$('#rest-stop');if(stop)stop.onclick=()=>{clearInterval(toolTimer);toolRemaining=0;updateToolTimer()};
+ ['erm-weight','erm-reps'].forEach(id=>{const e=$('#'+id);if(e)e.oninput=calc1rm});
+ ['plate-total','bar-weight'].forEach(id=>{const e=$('#'+id);if(e)e.oninput=calcPlates});
+ const ins=$('#install-now');if(ins)ins.onclick=installApp;
+ const ex=$('#export-data');if(ex)ex.onclick=exportData;
+ const im=$('#import-data');if(im)im.onchange=importData;
+ const reset=$('#reset-data');if(reset)reset.onclick=()=>{if(confirm('Erase all Hercules 5:30 logs and checkmarks on this phone?')){localStorage.removeItem(KEY);state=load();toast('Local data erased');render()}};
+}
